@@ -28,13 +28,23 @@ export async function POST(request: NextRequest) {
     const pdfBytes = Buffer.from(pdfData.split(",")[1], "base64");
     const logoBytes = Buffer.from(logoData.split(",")[1], "base64");
 
-    // Process logo with sharp - convert to PNG, preserve resolution
-    const processedLogo = await sharp(logoBytes).png().toBuffer();
-
-    // Get original dimensions for aspect ratio
+    // Get original dimensions and detect SVG
     const metadata = await sharp(logoBytes).metadata();
-    const originalWidth = metadata.width || 100;
-    const originalHeight = metadata.height || 100;
+    const isSvg = metadata.format === "svg";
+
+    // For SVGs, rasterize at high density (300 DPI) for print quality
+    // Default SVG density is 72, so 300 gives us ~4x resolution
+    const processedLogo = isSvg
+      ? await sharp(logoBytes, { density: 300 }).png().toBuffer()
+      : await sharp(logoBytes).png().toBuffer();
+
+    // Get dimensions after processing (important for SVGs which change size with density)
+    const processedMetadata = isSvg
+      ? await sharp(processedLogo).metadata()
+      : metadata;
+
+    const originalWidth = processedMetadata.width || 100;
+    const originalHeight = processedMetadata.height || 100;
     const aspectRatio = originalWidth / originalHeight;
 
     // Calculate display dimensions maintaining aspect ratio
