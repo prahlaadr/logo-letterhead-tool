@@ -38,7 +38,11 @@ export default function Home() {
     new Map()
   );
 
-  // Render PDF preview when PDF file changes
+  // Preview navigation state
+  const [previewPage, setPreviewPage] = useState(1);
+  const pdfDocRef = useRef<import("pdfjs-dist").PDFDocumentProxy | null>(null);
+
+  // Load PDF document when file changes
   useEffect(() => {
     if (!pdfFile) {
       setPdfPreviewUrl(null);
@@ -46,24 +50,44 @@ export default function Home() {
       setPdfPreviewError(null);
       setPageCount(0);
       setPageConfigs(new Map());
+      setPreviewPage(1);
+      pdfDocRef.current = null;
       return;
     }
 
-    const renderPdf = async () => {
+    const loadPdf = async () => {
       setPdfPreviewLoading(true);
       setPdfPreviewError(null);
 
       try {
         const pdfjs = await import("pdfjs-dist");
-
-        // Set up worker from local public folder
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
         const arrayBuffer = await pdfFile.arrayBuffer();
         const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        pdfDocRef.current = pdf;
         setPageCount(pdf.numPages);
-        const page = await pdf.getPage(1);
+        setPreviewPage(1);
+      } catch (error) {
+        console.error("PDF load error:", error);
+        setPdfPreviewError(
+          error instanceof Error ? error.message : "Failed to load PDF"
+        );
+        setPdfPreviewLoading(false);
+      }
+    };
 
+    loadPdf();
+  }, [pdfFile]);
+
+  // Render specific page when previewPage or pageCount changes
+  useEffect(() => {
+    const renderPage = async () => {
+      if (!pdfDocRef.current || pageCount === 0) return;
+
+      setPdfPreviewLoading(true);
+      try {
+        const page = await pdfDocRef.current.getPage(previewPage);
         const viewport = page.getViewport({ scale: 1.5 });
         const canvas = canvasRef.current;
         if (!canvas) {
@@ -83,17 +107,17 @@ export default function Home() {
         setPdfPreviewUrl(canvas.toDataURL());
         setPdfDimensions({ width: viewport.width, height: viewport.height });
       } catch (error) {
-        console.error("PDF preview error:", error);
+        console.error("PDF render error:", error);
         setPdfPreviewError(
-          error instanceof Error ? error.message : "Failed to render PDF preview"
+          error instanceof Error ? error.message : "Failed to render page"
         );
       } finally {
         setPdfPreviewLoading(false);
       }
     };
 
-    renderPdf();
-  }, [pdfFile]);
+    renderPage();
+  }, [previewPage, pageCount]);
 
   const onPdfDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles[0]) {
@@ -211,9 +235,20 @@ export default function Home() {
     { value: "bottom-right", label: "Bottom Right" },
   ];
 
+  // Determine the position for the current preview page
+  const getPreviewPosition = (): Position | null => {
+    if (applyToAll) {
+      return position;
+    }
+    return pageConfigs.get(previewPage) || null;
+  };
+
   // Calculate logo position for preview (scaled to preview size)
   const getLogoStyle = () => {
     if (!pdfDimensions) return {};
+
+    const previewPosition = getPreviewPosition();
+    if (!previewPosition) return { display: "none" };
 
     // Scale factor: preview renders at 1.5x, and we display it responsively
     const scaleFactor = 1.5;
@@ -232,7 +267,7 @@ export default function Home() {
       y: `${(scaledPadding / pdfDimensions.height) * 100}%`,
     };
 
-    switch (position) {
+    switch (previewPosition) {
       case "top-left":
         style.top = paddingPercent.y;
         style.left = paddingPercent.x;
@@ -304,12 +339,44 @@ export default function Home() {
                 </div>
               )}
             </div>
+            {/* Page Navigation */}
+            {pdfFile && pageCount > 1 && (
+              <div className="flex items-center justify-center gap-3 mt-3">
+                <button
+                  onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                  disabled={previewPage === 1}
+                  className={`px-3 py-1 text-sm rounded border transition-colors ${
+                    previewPage === 1
+                      ? "border-zinc-200 dark:border-zinc-700 text-zinc-400 cursor-not-allowed"
+                      : "border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  Prev
+                </button>
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Page {previewPage} of {pageCount}
+                </span>
+                <button
+                  onClick={() => setPreviewPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={previewPage === pageCount}
+                  className={`px-3 py-1 text-sm rounded border transition-colors ${
+                    previewPage === pageCount
+                      ? "border-zinc-200 dark:border-zinc-700 text-zinc-400 cursor-not-allowed"
+                      : "border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
+            )}
             {pdfFile && (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
                 {logoPreview
                   ? applyToAll
-                    ? `Showing first page. Logo will be added to all ${pageCount} pages.`
-                    : `Showing first page. Logo will be added to ${pageConfigs.size} selected page${pageConfigs.size !== 1 ? "s" : ""}.`
+                    ? `Logo will be added to all ${pageCount} pages.`
+                    : pageConfigs.has(previewPage)
+                      ? `This page: ${pageConfigs.get(previewPage)?.replace("-", " ")}. ${pageConfigs.size} page${pageConfigs.size !== 1 ? "s" : ""} total.`
+                      : `No logo on this page. ${pageConfigs.size} page${pageConfigs.size !== 1 ? "s" : ""} selected.`
                   : "Upload a logo to see placement preview."}
               </p>
             )}
