@@ -5,6 +5,11 @@ import { useDropzone } from "react-dropzone";
 
 type Position = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
+interface PageConfig {
+  pageNumber: number;
+  position: Position;
+}
+
 export default function Home() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -26,12 +31,21 @@ export default function Home() {
   } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Page selection state
+  const [applyToAll, setApplyToAll] = useState(true);
+  const [pageCount, setPageCount] = useState(0);
+  const [pageConfigs, setPageConfigs] = useState<Map<number, Position>>(
+    new Map()
+  );
+
   // Render PDF preview when PDF file changes
   useEffect(() => {
     if (!pdfFile) {
       setPdfPreviewUrl(null);
       setPdfDimensions(null);
       setPdfPreviewError(null);
+      setPageCount(0);
+      setPageConfigs(new Map());
       return;
     }
 
@@ -47,6 +61,7 @@ export default function Home() {
 
         const arrayBuffer = await pdfFile.arrayBuffer();
         const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        setPageCount(pdf.numPages);
         const page = await pdf.getPage(1);
 
         const viewport = page.getViewport({ scale: 1.5 });
@@ -149,15 +164,22 @@ export default function Home() {
         pdfReader.readAsDataURL(pdfFile);
       });
 
+      // Build page configs array from the Map
+      const pageConfigsArray: PageConfig[] = Array.from(
+        pageConfigs.entries()
+      ).map(([pageNumber, pos]) => ({ pageNumber, position: pos }));
+
       const response = await fetch("/api/process-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pdfData,
           logoData,
-          position,
           size,
           padding,
+          applyToAll,
+          position,
+          pageConfigs: pageConfigsArray,
         }),
       });
 
@@ -285,7 +307,9 @@ export default function Home() {
             {pdfFile && (
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
                 {logoPreview
-                  ? "Showing first page. Logo will be added to all pages."
+                  ? applyToAll
+                    ? `Showing first page. Logo will be added to all ${pageCount} pages.`
+                    : `Showing first page. Logo will be added to ${pageConfigs.size} selected page${pageConfigs.size !== 1 ? "s" : ""}.`
                   : "Upload a logo to see placement preview."}
               </p>
             )}
@@ -376,27 +400,132 @@ export default function Home() {
               </ul>
             </div>
 
-            {/* Position Selector */}
+            {/* Page Application Mode */}
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Logo Position
+                Apply Logo To
               </label>
-              <div className="grid grid-cols-4 gap-2">
-                {positions.map((pos) => (
-                  <button
-                    key={pos.value}
-                    onClick={() => setPosition(pos.value)}
-                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                      position === pos.value
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-600 hover:border-zinc-400"
-                    }`}
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="applyMode"
+                    checked={applyToAll}
+                    onChange={() => setApplyToAll(true)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                    All pages
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="applyMode"
+                    checked={!applyToAll}
+                    onChange={() => setApplyToAll(false)}
+                    disabled={pageCount === 0}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span
+                    className={`text-sm ${pageCount === 0 ? "text-zinc-400" : "text-zinc-700 dark:text-zinc-300"}`}
                   >
-                    {pos.label}
-                  </button>
-                ))}
+                    Select pages
+                  </span>
+                </label>
               </div>
             </div>
+
+            {/* Position Selector (for All Pages mode) */}
+            {applyToAll && (
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                  Logo Position
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {positions.map((pos) => (
+                    <button
+                      key={pos.value}
+                      onClick={() => setPosition(pos.value)}
+                      className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                        position === pos.value
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-600 hover:border-zinc-400"
+                      }`}
+                    >
+                      {pos.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Page Selection UI (for Select Pages mode) */}
+            {!applyToAll && pageCount > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                  Select Pages & Positions
+                </label>
+                <div className="max-h-48 overflow-y-auto border border-zinc-300 dark:border-zinc-600 rounded-lg divide-y divide-zinc-200 dark:divide-zinc-700">
+                  {Array.from({ length: pageCount }, (_, i) => i + 1).map(
+                    (pageNum) => {
+                      const isSelected = pageConfigs.has(pageNum);
+                      const pagePosition = pageConfigs.get(pageNum) || "top-right";
+
+                      return (
+                        <div
+                          key={pageNum}
+                          className="flex items-center gap-3 px-3 py-2 bg-white dark:bg-zinc-800"
+                        >
+                          <label className="flex items-center gap-2 cursor-pointer min-w-[80px]">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const newConfigs = new Map(pageConfigs);
+                                if (e.target.checked) {
+                                  newConfigs.set(pageNum, "top-right");
+                                } else {
+                                  newConfigs.delete(pageNum);
+                                }
+                                setPageConfigs(newConfigs);
+                              }}
+                              className="w-4 h-4 rounded border-zinc-300 text-blue-600"
+                            />
+                            <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                              Page {pageNum}
+                            </span>
+                          </label>
+                          <select
+                            value={pagePosition}
+                            onChange={(e) => {
+                              const newConfigs = new Map(pageConfigs);
+                              newConfigs.set(pageNum, e.target.value as Position);
+                              setPageConfigs(newConfigs);
+                            }}
+                            disabled={!isSelected}
+                            className={`flex-1 text-sm px-2 py-1 rounded border ${
+                              isSelected
+                                ? "border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300"
+                                : "border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                            }`}
+                          >
+                            {positions.map((pos) => (
+                              <option key={pos.value} value={pos.value}>
+                                {pos.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  {pageConfigs.size} of {pageCount} pages selected
+                </p>
+              </div>
+            )}
 
             {/* Size Slider */}
             <div>
