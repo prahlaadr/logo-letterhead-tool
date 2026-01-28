@@ -28,18 +28,34 @@ export async function POST(request: NextRequest) {
     const pdfBytes = Buffer.from(pdfData.split(",")[1], "base64");
     const logoBytes = Buffer.from(logoData.split(",")[1], "base64");
 
-    // Process logo with sharp - convert to PNG and resize
-    const processedLogo = await sharp(logoBytes)
-      .resize(size, size, { fit: "inside", withoutEnlargement: true })
-      .png()
-      .toBuffer();
+    // Process logo with sharp - convert to PNG, preserve resolution
+    const processedLogo = await sharp(logoBytes).png().toBuffer();
+
+    // Get original dimensions for aspect ratio
+    const metadata = await sharp(logoBytes).metadata();
+    const originalWidth = metadata.width || 100;
+    const originalHeight = metadata.height || 100;
+    const aspectRatio = originalWidth / originalHeight;
+
+    // Calculate display dimensions maintaining aspect ratio
+    let displayWidth: number;
+    let displayHeight: number;
+    if (aspectRatio >= 1) {
+      // Wider than tall
+      displayWidth = size;
+      displayHeight = size / aspectRatio;
+    } else {
+      // Taller than wide
+      displayHeight = size;
+      displayWidth = size * aspectRatio;
+    }
 
     // Load PDF
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const pngImage = await pdfDoc.embedPng(processedLogo);
 
-    // Get logo dimensions after embedding
-    const logoDims = pngImage.scale(1);
+    // Use calculated display dimensions instead of embedded image dimensions
+    const logoDims = { width: displayWidth, height: displayHeight };
 
     // Add logo to each page
     const pages = pdfDoc.getPages();
