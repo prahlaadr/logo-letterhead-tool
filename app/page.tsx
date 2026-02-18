@@ -271,18 +271,26 @@ export default function Home() {
       case "top-left":
         style.top = paddingPercent.y;
         style.left = paddingPercent.x;
+        style.bottom = "auto";
+        style.right = "auto";
         break;
       case "top-right":
         style.top = paddingPercent.y;
         style.right = paddingPercent.x;
+        style.bottom = "auto";
+        style.left = "auto";
         break;
       case "bottom-left":
         style.bottom = paddingPercent.y;
         style.left = paddingPercent.x;
+        style.top = "auto";
+        style.right = "auto";
         break;
       case "bottom-right":
         style.bottom = paddingPercent.y;
         style.right = paddingPercent.x;
+        style.top = "auto";
+        style.left = "auto";
         break;
     }
 
@@ -549,13 +557,16 @@ export default function Home() {
                               type="checkbox"
                               checked={isSelected}
                               onChange={(e) => {
-                                const newConfigs = new Map(pageConfigs);
-                                if (e.target.checked) {
-                                  newConfigs.set(pageNum, "top-right");
-                                } else {
-                                  newConfigs.delete(pageNum);
-                                }
-                                setPageConfigs(newConfigs);
+                                const checked = e.target.checked;
+                                setPageConfigs((prev) => {
+                                  const newConfigs = new Map(prev);
+                                  if (checked) {
+                                    newConfigs.set(pageNum, "top-right");
+                                  } else {
+                                    newConfigs.delete(pageNum);
+                                  }
+                                  return newConfigs;
+                                });
                               }}
                               className="w-4 h-4 rounded border-zinc-300 text-blue-600"
                             />
@@ -566,9 +577,12 @@ export default function Home() {
                           <select
                             value={pagePosition}
                             onChange={(e) => {
-                              const newConfigs = new Map(pageConfigs);
-                              newConfigs.set(pageNum, e.target.value as Position);
-                              setPageConfigs(newConfigs);
+                              const newPosition = e.target.value as Position;
+                              setPageConfigs((prev) => {
+                                const newConfigs = new Map(prev);
+                                newConfigs.set(pageNum, newPosition);
+                                return newConfigs;
+                              });
                             }}
                             disabled={!isSelected}
                             className={`flex-1 text-sm px-2 py-1 rounded border ${
